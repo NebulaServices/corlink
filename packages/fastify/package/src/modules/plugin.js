@@ -6,15 +6,18 @@ import fastifyCookie from '@fastify/cookie';
 function verify(opts) {
     const schema = z.object({
         deniedFilePath: z.string(),
-        v3: z.boolean(),
         unlockedPaths: z.array(z.string()),
         whiteListedURLs: z.array(z.string()),
-        masqrUrl: z.string(),
+        corlinkUrl: z.string(),
+        corlinkAPIKey: z.string(),
         builtinCookieParser: z.boolean().optional(),
     }).safeParse(opts);
     if (!schema.success) {
-        if (schema.error.format().masqrUrl) {
-            throw new Error('The option corlinkUrl is not a string: ' + schema.error.format().masqrUrl?._errors);
+        if (schema.error.format().corlinkUrl) {
+            throw new Error('The option corlinkUrl is not a string: ' + schema.error.format().corlinkUrl?._errors);
+        }
+        if (schema.error.format().corlinkAPIKey) {
+            throw new Error('The option corlinkAPIKey is not a string: ' + schema.error.format().corlinkAPIKey?._errors);
         }
         if (schema.error.format().deniedFilePath) {
             throw new Error('The option deniedFilePath is not a string: ' + schema.error.format().deniedFilePath?._errors);
@@ -24,9 +27,6 @@ function verify(opts) {
         }
         if (schema.error.format().whiteListedURLs) {
             throw new Error('The option whiteListedURLs is not an array: ' + schema.error.format().whiteListedURLs?._errors);
-        }
-        if (schema.error.format().v3) {
-            throw new Error('The option v3 is not a boolean: ' + schema.error.format().v3?._errors);
         }
     }
 }
@@ -45,11 +45,21 @@ function turnToHostname(url) {
     }
 }
 
-async function verifyUser(pass, masqrUrl, host) {
+async function verifyUser(pass, corlinkUrl, corlinkAPIKey) {
+    if (corlinkUrl[corlinkUrl.length - 1] !== '/') {
+        corlinkUrl += '/';
+    }
     try {
-        const t = await fetch(masqrUrl + pass + `&host=${host}`);
+        const t = await fetch(corlinkUrl + 'verify', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${corlinkAPIKey}`,
+                'Key': pass
+            },
+        });
         const tt = await t.json();
-        if (!tt.status != "License valid") {
+        if (!tt.status != "ok") {
             throw new Error('The user is not verified');
         }
         else {
@@ -70,9 +80,7 @@ const plugin = (fastify, opts, done) => {
     try {
         readFileSync(opts.deniedFilePath);
     } catch (error) {
-        if (!opts.v3) {
-            throw new Error('The deniedFilePath does not exist');
-        }
+        throw new Error('The deniedFilePath does not exist');
     }
     if (opts.builtinCookieParser) {
         fastify.register(fastifyCookie, {
@@ -83,7 +91,8 @@ const plugin = (fastify, opts, done) => {
     fastify.addHook('onRequest', function (req, reply, next) {
         const file = readFileSync(opts.deniedFilePath, 'utf8');
         const authHeader = req.headers.authorization;
-        const masqrUrl = opts.corlinkUrl;
+        const corlinkUrl = opts.corlinkUrl;
+        const corlinkAPIKey = opts.corlinkAPIKey;
         const whiteListedURLs = opts.whiteListedURLs.map(turnToHostname);
         if (whiteListedURLs.includes(req.hostname)) {
             next();
@@ -111,14 +120,10 @@ const plugin = (fastify, opts, done) => {
         const auth = new Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
         const user = auth[0];
         const pass = auth[1];
-        const isVerified = verifyUser(pass, masqrUrl, req.hostname);
+        const isVerified = verifyUser(pass, corlinkUrl, corlinkAPIKey);
         if (!isVerified) {
             reply.status(401).header('WWW-Authenticate', 'Basic').type('text/html');
-            if (!opts.v3) {
-                fail(reply, file);
-            } else {
-                fail(reply, readFileSync(`${req.hostname}.html`, 'utf8'));
-            }
+            fail(reply, file);
             return;
         }
         else {
@@ -138,8 +143,8 @@ const plugin = (fastify, opts, done) => {
     * @property {string} corlinkAPIKey - The API key of the corlink API 
     * @property {boolean} builtinCookieParser - Whether to use the built-in cookie parser or not
 **/
-const masqr = fp(plugin, {
-    fastify: '5.x',
+const corlink = fp(plugin, {
+    fastify: '4.x',
     name: '@rubynetwork/corlink-fastify',
 });
-export default masqr;
+export default corlink;

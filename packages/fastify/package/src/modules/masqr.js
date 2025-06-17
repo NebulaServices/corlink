@@ -139,7 +139,7 @@ const plugin = (fastify, opts, done) => {
     * @property {boolean} builtinCookieParser - Whether to use the built-in cookie parser or not
 **/
 const masqr = fp(plugin, {
-    fastify: '5.x',
+    fastify: '4.x',
     name: '@rubynetwork/corlink-fastify',
 });
 export default masqr;
